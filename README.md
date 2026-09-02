@@ -50,7 +50,7 @@ Ou define a variável de ambiente diretamente no terminal.
 
 ```bash
 python agent.py "que eventos tenho esta semana?"
-python agent.py "cria uma reunião amanhã às 15h com o titulo 'Sync Almovi'"
+python agent.py "cria uma reunião amanhã às 15h"
 python agent.py "estou livre na sexta de manhã?"
 ```
 
@@ -59,7 +59,7 @@ pedido.
 
 ## Notas
 
-- O modelo por omissão é `gpt-4.1`; muda a linha `model=...` em
+- O modelo por omissão é `gpt-4.1-mini`; muda a linha `model=...` em
   `agent.py` se quiseres outro.
 - `cache_tools_list=True` evita perguntar ao servidor MCP pela lista de
   ferramentas em cada execução — mais rápido, mas se adicionares
