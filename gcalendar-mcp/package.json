@@ -1,0 +1,17 @@
+{
+  "name": "gcalendar-mcp",
+  "version": "1.0.0",
+  "description": "MCP server que liga ao Google Calendar",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "auth": "node src/authorize.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "google-auth-library": "^9.14.2",
+    "googleapis": "^144.0.0",
+    "zod": "^3.23.8"
+  }
+}
