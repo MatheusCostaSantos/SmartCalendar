@@ -72,64 +72,87 @@ def parece_grade_semanal(cabecalho: list) -> bool:
     return colunas == DIAS_SEMANA
 
 
-def extrair_mes_ano(texto_mes: str) -> tuple[int, int] | None:
-    """Extrai (mês, ano) de algo como 'Ago 2026'."""
-    match = re.search(r"([A-Za-zç]{3,})\.?\s+(\d{4})", texto_mes or "")
-    if not match:
+def extrair_mes_e_ano_juntos(texto: str):
+    m = re.search(r"([A-Za-zç]{3,})\.?\s+(\d{4})", texto or "")
+    if not m:
         return None
-    nome_mes, ano = match.groups()
-    mes = MESES_PT.get(nome_mes[:3].lower())
-    return (mes, int(ano)) if mes else None
+    mes = MESES_PT.get(m.group(1)[:3].lower())
+    return (mes, int(m.group(2))) if mes else None
+
+
+def extrair_so_mes(texto: str):
+    m = re.fullmatch(r"\s*([A-Za-zç]{3,})\.?\s*", texto or "")
+    return MESES_PT.get(m.group(1)[:3].lower()) if m else None
+
+
+def extrair_so_ano(texto: str):
+    m = re.fullmatch(r"\s*(\d{4})\s*", texto or "")
+    return int(m.group(1)) if m else None
 
 
 def calcular_eventos_grade_semanal(tabela: list[list]) -> list[dict]:
-    """
-    Converte uma tabela no formato Mês | Dom | Seg | Ter | Qua | Qui | Sex | Sáb
-    em uma lista de eventos com data exata já calculada (sem depender do
-    modelo de linguagem para nenhuma conta).
-    """
-    eventos = []
-    mes_atual, ano_atual = None, None
-    # referência do último dia visto, para detectar virada de mês
-    # (ex: dia 31 seguido de dia 1 significa que viramos o mês)
+    celulas_com_posicao = []
+    deslocamento = 0
     ultimo_dia_numero = None
 
-    for linha in tabela[1:]:  # pula cabeçalho
+    for idx_linha, linha in enumerate(tabela[1:]):
+        for idx_coluna, celula in enumerate(linha[1:]):
+            if celula:
+                m = re.match(r"\s*(\d{1,2})\b", str(celula))
+                if m:
+                    dia_numero = int(m.group(1))
+                    if ultimo_dia_numero is not None and dia_numero < ultimo_dia_numero - 20:
+                        deslocamento += 1
+                    ultimo_dia_numero = dia_numero
+            celulas_com_posicao.append((idx_linha, idx_coluna, celula, deslocamento))
+
+    deslocamento_por_linha = {}
+    for idx_linha, idx_coluna, celula, desl in celulas_com_posicao:
+        deslocamento_por_linha.setdefault(idx_linha, desl)
+
+    mes_ancora = ano_ancora = deslocamento_ancora = None
+    nome_mes_pendente = deslocamento_pendente = None
+
+    for idx_linha, linha in enumerate(tabela[1:]):
+        desl = deslocamento_por_linha.get(idx_linha, 0)
         celula_mes = linha[0]
-        extraido = extrair_mes_ano(celula_mes)
-        if extraido:
-            mes_atual, ano_atual = extraido
+        junto = extrair_mes_e_ano_juntos(celula_mes)
+        if junto:
+            mes_ancora, ano_ancora, deslocamento_ancora = junto[0], junto[1], desl
+            break
+        so_mes = extrair_so_mes(celula_mes)
+        if so_mes:
+            nome_mes_pendente, deslocamento_pendente = so_mes, desl
+            continue
+        so_ano = extrair_so_ano(celula_mes)
+        if so_ano and nome_mes_pendente is not None:
+            mes_ancora, ano_ancora, deslocamento_ancora = nome_mes_pendente, so_ano, deslocamento_pendente
+            break
 
-        if mes_atual is None:
-            continue  # ainda não conseguimos identificar o mês, pula a linha
+    if mes_ancora is None:
+        return []
 
-        for i, celula in enumerate(linha[1:]):
-            if not celula:
-                continue
-
-            match_dia = re.match(r"\s*(\d{1,2})\b", str(celula))
-            if not match_dia:
-                continue
-
-            dia_numero = int(match_dia.group(1))
-            evento_texto = str(celula)[match_dia.end():].strip()
-
-            # detecta virada de mês: se o número do dia "voltou" para um
-            # valor bem menor que o anterior dentro da mesma linha, o mês virou
-            if ultimo_dia_numero is not None and dia_numero < ultimo_dia_numero - 20:
-                mes_atual += 1
-                if mes_atual > 12:
-                    mes_atual = 1
-                    ano_atual += 1
-            ultimo_dia_numero = dia_numero
-
-            if evento_texto:  # só cria evento se a célula tiver texto além do número
-                data_evento = date(ano_atual, mes_atual, dia_numero)
-                eventos.append({
-                    "data": data_evento.isoformat(),
-                    "dia_semana": DIAS_SEMANA[i],
-                    "descricao": evento_texto,
-                })
+    eventos = []
+    for idx_linha, idx_coluna, celula, desl in celulas_com_posicao:
+        if not celula:
+            continue
+        m = re.match(r"\s*(\d{1,2})\b", str(celula))
+        if not m:
+            continue
+        evento_texto = str(celula)[m.end():].strip()
+        if not evento_texto:
+            continue
+        dia_numero = int(m.group(1))
+        diferenca = desl - deslocamento_ancora
+        mes_total = (mes_ancora - 1) + diferenca
+        mes_linha = mes_total % 12 + 1
+        ano_linha = ano_ancora + mes_total // 12
+        eventos.append({
+            "data": date(ano_linha, mes_linha, dia_numero).isoformat(),
+            "dia_semana": DIAS_SEMANA[idx_coluna],
+            "descricao": evento_texto.replace("\n", " "),
+        })
+    return eventos
 
 def preencher_mes_para_baixo(tabela: list[list]) -> list[list]:
     """

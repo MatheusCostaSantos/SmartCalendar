@@ -7,6 +7,36 @@ import { getAuthorizedClient } from "./auth.js";
 const auth = getAuthorizedClient();
 const calendar = google.calendar({ version: "v3", auth });
 
+const MAX_TENTATIVAS = 5;
+const ESPERA_BASE_MS = 1000;
+
+function esperar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ehErroDeLimite(err) {
+  const status = err?.code ?? err?.response?.status;
+  const motivo = err?.errors?.[0]?.reason ?? err?.response?.data?.error?.errors?.[0]?.reason;
+  return status === 429 || (status === 403 && (motivo === "rateLimitExceeded" || motivo === "userRateLimitExceeded"));
+}
+
+async function comRetentativa(funcao) {
+  let tentativa = 0;
+  while (true) {
+    try {
+      return await funcao();
+    } catch (err) {
+      if (!ehErroDeLimite(err) || tentativa >= MAX_TENTATIVAS) {
+        throw err;
+      }
+      const espera = ESPERA_BASE_MS * 2 ** tentativa;
+      console.error(`Limite de requisições atingido. Tentando de novo em ${espera}ms (tentativa ${tentativa + 1}/${MAX_TENTATIVAS})`);
+      await esperar(espera);
+      tentativa++;
+    }
+  }
+}
+
 const server = new McpServer({
   name: "gcalendar-mcp",
   version: "1.0.0",
@@ -22,7 +52,7 @@ server.tool(
   "Lista as agendas (calendars) a que a conta autenticada tem acesso",
   {},
   async () => {
-    const res = await calendar.calendarList.list();
+    const res = await comRetentativa(() => calendar.calendarList.list());
     return asText(res.data.items ?? []);
   }
 );
@@ -45,14 +75,16 @@ server.tool(
     maxResults: z.number().int().min(1).max(250).default(50),
   },
   async ({ calendarId, timeMin, timeMax, maxResults }) => {
-    const res = await calendar.events.list({
-      calendarId,
-      timeMin,
-      timeMax,
-      maxResults,
-      singleEvents: true,
-      orderBy: "startTime",
-    });
+    const res = await comRetentativa(() =>
+      calendar.events.list({
+        calendarId,
+        timeMin,
+        timeMax,
+        maxResults,
+        singleEvents: true,
+        orderBy: "startTime",
+      })
+    );
     return asText(res.data.items ?? []);
   }
 );
@@ -75,17 +107,19 @@ server.tool(
       .describe("Lista de emails a convidar"),
   },
   async ({ calendarId, summary, description, location, start, end, timeZone, attendees }) => {
-    const res = await calendar.events.insert({
-      calendarId,
-      requestBody: {
-        summary,
-        description,
-        location,
-        start: { dateTime: start, timeZone },
-        end: { dateTime: end, timeZone },
-        attendees: attendees?.map((email) => ({ email })),
-      },
-    });
+    const res = await comRetentativa(() =>
+      calendar.events.insert({
+        calendarId,
+        requestBody: {
+          summary,
+          description,
+          location,
+          start: { dateTime: start, timeZone },
+          end: { dateTime: end, timeZone },
+          attendees: attendees?.map((email) => ({ email })),
+        },
+      })
+    );
     return asText(res.data);
   }
 );
@@ -112,7 +146,9 @@ server.tool(
     if (start !== undefined) patch.start = { dateTime: start, timeZone };
     if (end !== undefined) patch.end = { dateTime: end, timeZone };
 
-    const res = await calendar.events.patch({ calendarId, eventId, requestBody: patch });
+    const res = await comRetentativa(() =>
+      calendar.events.patch({ calendarId, eventId, requestBody: patch })
+    );
     return asText(res.data);
   }
 );
@@ -126,7 +162,7 @@ server.tool(
     eventId: z.string(),
   },
   async ({ calendarId, eventId }) => {
-    await calendar.events.delete({ calendarId, eventId });
+    await comRetentativa(() => calendar.events.delete({ calendarId, eventId }));
     return asText({ deleted: true, eventId });
   }
 );
@@ -141,13 +177,15 @@ server.tool(
     timeMax: z.string().describe("Data/hora final em ISO 8601"),
   },
   async ({ calendarIds, timeMin, timeMax }) => {
-    const res = await calendar.freebusy.query({
-      requestBody: {
-        timeMin,
-        timeMax,
-        items: calendarIds.map((id) => ({ id })),
-      },
-    });
+    const res = await comRetentativa(() =>
+      calendar.freebusy.query({
+        requestBody: {
+          timeMin,
+          timeMax,
+          items: calendarIds.map((id) => ({ id })),
+        },
+      })
+    );
     return asText(res.data.calendars ?? {});
   }
 );
