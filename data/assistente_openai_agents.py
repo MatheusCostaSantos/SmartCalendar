@@ -30,10 +30,15 @@ Sua tarefa:
    avaliação, pesos de nota, cabeçalhos institucionais).
 6. Se a data ficar genuinamente ambígua mesmo após tentar inferir o mês,
    NÃO invente — pule esse evento e relate a ambiguidade no resumo final.
-7. NÃO peça confirmação ao usuário — crie todos os eventos diretamente.
-8. Ao final, responda com um resumo: quantos eventos foram criados, uma
+7. Se o usuário fornecer um "Contexto adicional", trate essas informações
+   como MAIS CONFIÁVEIS que qualquer inferência sua a partir do PDF sozinho
+   — use-as para resolver ambiguidades (ex: em que dia da semana cai uma
+   aula que o PDF não especifica claramente).
+8. NÃO peça confirmação ao usuário — crie todos os eventos diretamente.
+9. Ao final, responda com um resumo: quantos eventos foram criados, uma
    lista com título + data de cada um, e qualquer ambiguidade que você
    teve que resolver ou pulou.
+   
 """
 
 
@@ -43,11 +48,20 @@ class AssistenteAgentesOpenAI(AssistenteDeAgendamento):
     def __init__(self, agente):
         self._agente = agente
 
-    async def processar(self, conteudo: str) -> str:
-        prompt = (
-            "Aqui está o conteúdo extraído do documento:\n\n"
-            f"{conteudo}\n\n"
-            "Crie todos os eventos correspondentes no Google Calendar."
-        )
+    async def processar(self, conteudo: str, contexto_adicional: str | None = None) -> str:
+        partes_prompt = [
+            "Aqui está o conteúdo extraído do documento:",
+            "",
+            conteudo,
+        ]
+        if contexto_adicional:
+            partes_prompt += [
+                "",
+                "--- Contexto adicional fornecido pelo usuário (use com prioridade) ---",
+                contexto_adicional,
+            ]
+        partes_prompt += ["", "Crie todos os eventos correspondentes no Google Calendar."]
+
+        prompt = "\n".join(partes_prompt)
         resultado = await Runner.run(self._agente, prompt, max_turns=60)
         return resultado.final_output

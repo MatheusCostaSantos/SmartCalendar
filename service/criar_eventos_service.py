@@ -9,6 +9,6 @@ class CriarEventosDoPdfService:
         self._extrator = extrator
         self._assistente = assistente
 
-    async def executar(self, caminho_pdf: str) -> str:
+    async def executar(self, caminho_pdf: str, contexto_adicional: str | None = None) -> str:
         conteudo = self._extrator.extrair(caminho_pdf)
-        return await self._assistente.processar(conteudo)
+        return await self._assistente.processar(conteudo, contexto_adicional)

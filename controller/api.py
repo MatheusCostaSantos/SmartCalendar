@@ -6,7 +6,7 @@ from pathlib import Path
 from agents import Agent
 from agents.mcp import MCPServerStdio
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from data.assistente_openai_agents import INSTRUCTIONS, AssistenteAgentesOpenAI
@@ -53,7 +53,10 @@ class ScheduleResponse(BaseModel):
 
 
 @app.post("/pdf/schedule", response_model=ScheduleResponse)
-async def parse_pdf_and_schedule(file: UploadFile = File(...)):
+async def parse_pdf_and_schedule(
+    file: UploadFile = File(...),
+    contexto_adicional: str | None = Form(None),
+):
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="O arquivo deve ser um PDF")
 
@@ -64,7 +67,7 @@ async def parse_pdf_and_schedule(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        resumo = await app.state.servico.executar(tmp_path)
+        resumo = await app.state.servico.executar(tmp_path, contexto_adicional)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Erro ao processar PDF: {e}")
     finally:
