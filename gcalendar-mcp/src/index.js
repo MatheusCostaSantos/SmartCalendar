@@ -7,6 +7,11 @@ import { getAuthorizedClient } from "./auth.js";
 const auth = getAuthorizedClient();
 const calendar = google.calendar({ version: "v3", auth });
 
+// 3000ms entre chamadas (mantido por escolha do usuário, mesmo sendo mais
+// conservador que a cota real da Calendar API). O trade-off: quanto mais
+// eventos no cronograma, mais tempo a fila toda leva — por isso o
+// client_session_timeout_seconds do lado Python (e o readTimeout do app
+// Android) precisam ter folga suficiente pra cobrir N eventos * 3s.
 const ESPACAMENTO_MS = 3000;
 
 function esperar(ms) {
