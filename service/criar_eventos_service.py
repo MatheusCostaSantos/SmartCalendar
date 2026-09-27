@@ -1,4 +1,8 @@
-from domain.interfaces import AssistenteDeAgendamento, ExtratorDeCronograma
+from domain.interfaces import (
+    AssistenteDeAgendamento,
+    CredenciaisGoogle,
+    ExtratorDeCronograma,
+)
 
 
 class CriarEventosDoPdfService:
@@ -9,6 +13,11 @@ class CriarEventosDoPdfService:
         self._extrator = extrator
         self._assistente = assistente
 
-    async def executar(self, caminho_pdf: str, contexto_adicional: str | None = None) -> str:
+    async def executar(
+        self,
+        caminho_pdf: str,
+        credenciais: CredenciaisGoogle,
+        contexto_adicional: str | None = None,
+    ) -> str:
         conteudo = self._extrator.extrair(caminho_pdf)
-        return await self._assistente.processar(conteudo, contexto_adicional)
+        return await self._assistente.processar(conteudo, credenciais, contexto_adicional)

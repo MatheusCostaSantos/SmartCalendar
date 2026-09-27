@@ -37,13 +37,39 @@ export function createOAuthClient() {
 }
 
 // Devolve um client já autenticado, pronto a usar nas chamadas à API.
-// Lança erro se ainda não houver token (nesse caso corre `npm run auth` primeiro).
+//
+// Duas origens possíveis para o token:
+// 1. GOOGLE_TOKEN_JSON (env var) — usado quando a API Python sobe este
+//    processo por requisição, com o token de UM usuário específico
+//    (fluxo multiusuário via login com Google).
+// 2. token.json em disco — usado no modo antigo, mono-usuário, gerado
+//    uma vez via `npm run auth`.
 export function getAuthorizedClient() {
-  const client = createOAuthClient();
+  const clientIdEnv = process.env.GOOGLE_CLIENT_ID;
+  const clientSecretEnv = process.env.GOOGLE_CLIENT_SECRET;
+  const { client_id, client_secret, redirect_uris } = loadCredentials();
+  const client = new OAuth2Client(
+    clientIdEnv || client_id,
+    clientSecretEnv || client_secret,
+    redirect_uris[0]
+  );
+
+  if (process.env.GOOGLE_TOKEN_JSON) {
+    // Modo multiusuário: token vem da requisição, não escrevemos nada em
+    // disco. O refresh automático (client.on("tokens", ...)) acontece só
+    // em memória — na próxima requisição desse usuário, o refresh_token
+    // guardado no nosso repositório Python gera um access_token novo de
+    // qualquer forma, então não perder o refresh aqui é inofensivo.
+    const token = JSON.parse(process.env.GOOGLE_TOKEN_JSON);
+    client.setCredentials(token);
+    return client;
+  }
+
   if (!fs.existsSync(TOKEN_PATH)) {
     throw new Error(
       "Ainda não há token guardado. Corre `npm run auth` uma vez para autenticar " +
-        "a tua conta Google (abre o browser, pede consentimento, guarda o token)."
+        "a tua conta Google (abre o browser, pede consentimento, guarda o token), " +
+        "ou define GOOGLE_TOKEN_JSON para usar o modo multiusuário."
     );
   }
   const token = JSON.parse(fs.readFileSync(TOKEN_PATH, "utf-8"));

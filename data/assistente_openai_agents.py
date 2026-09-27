@@ -1,6 +1,11 @@
-from agents import Runner
+import json
+import os
+from pathlib import Path
 
-from domain.interfaces import AssistenteDeAgendamento
+from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
+
+from domain.interfaces import AssistenteDeAgendamento, CredenciaisGoogle
 
 INSTRUCTIONS = """
 Você é um assistente que cria eventos no Google Calendar a partir do
@@ -43,12 +48,17 @@ Sua tarefa:
 
 
 class AssistenteAgentesOpenAI(AssistenteDeAgendamento):
-    """Implementação concreta que usa o OpenAI Agents SDK + o MCP do Google Calendar."""
+    """Implementação concreta que usa o OpenAI Agents SDK + o MCP do Google Calendar.
 
-    def __init__(self, agente):
-        self._agente = agente
+    Diferente da v1: não guarda mais um único `Agent` fixo. Cada chamada a
+    `processar` sobe seu próprio processo do gcalendar-mcp, autenticado com
+    as credenciais DAQUELE usuário, e o derruba ao terminar."""
 
-    async def processar(self, conteudo: str, contexto_adicional: str | None = None) -> str:
+    def __init__(self, caminho_mcp: str | Path, modelo: str = "gpt-4.1-mini"):
+        self._caminho_mcp = str(caminho_mcp)
+        self._modelo = modelo
+
+    def _montar_prompt(self, conteudo: str, contexto_adicional: str | None) -> str:
         partes_prompt = [
             "Aqui está o conteúdo extraído do documento:",
             "",
@@ -61,7 +71,47 @@ class AssistenteAgentesOpenAI(AssistenteDeAgendamento):
                 contexto_adicional,
             ]
         partes_prompt += ["", "Crie todos os eventos correspondentes no Google Calendar."]
+        return "\n".join(partes_prompt)
 
-        prompt = "\n".join(partes_prompt)
-        resultado = await Runner.run(self._agente, prompt, max_turns=60)
-        return resultado.final_output
+    def _env_com_token_do_usuario(self, credenciais: CredenciaisGoogle) -> dict:
+        # O gcalendar-mcp (Node) lê essa variável em vez do token.json fixo
+        # quando ela existe — veja a mudança em gcalendar-mcp/src/auth.js.
+        token = {
+            "access_token": credenciais.access_token,
+            "refresh_token": credenciais.refresh_token,
+            "scope": " ".join(credenciais.scopes),
+            "token_type": "Bearer",
+        }
+        return {
+            **os.environ,
+            "GOOGLE_TOKEN_JSON": json.dumps(token),
+            "GOOGLE_CLIENT_ID": credenciais.client_id,
+            "GOOGLE_CLIENT_SECRET": credenciais.client_secret,
+        }
+
+    async def processar(
+        self,
+        conteudo: str,
+        credenciais: CredenciaisGoogle,
+        contexto_adicional: str | None = None,
+    ) -> str:
+        prompt = self._montar_prompt(conteudo, contexto_adicional)
+
+        async with MCPServerStdio(
+            name="Google Calendar MCP",
+            params={
+                "command": "node",
+                "args": [self._caminho_mcp],
+                "env": self._env_com_token_do_usuario(credenciais),
+            },
+            cache_tools_list=True,
+            client_session_timeout_seconds=60,
+        ) as calendar_server:
+            agente = Agent(
+                name="Criador de Eventos",
+                instructions=INSTRUCTIONS,
+                model=self._modelo,
+                mcp_servers=[calendar_server],
+            )
+            resultado = await Runner.run(agente, prompt, max_turns=60)
+            return resultado.final_output
